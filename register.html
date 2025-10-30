@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Register - Chat App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f1f1f1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .register-box {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    h2 {
+      margin-bottom: 20px;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    .message {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+    .success {
+      color: green;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="register-box">
+    <h2>Register</h2>
+    <input type="text" id="username" placeholder="Enter username">
+    <input type="password" id="password" placeholder="Enter password">
+    <button onclick="register()">Register</button>
+    <div class="message" id="messageBox"></div>
+  </div>
+
+  <script>
+    function register() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const messageBox = document.getElementById('messageBox');
+
+      if (!username || !password) {
+        messageBox.textContent = 'Please enter both username and password.';
+        messageBox.className = 'message error';
+        return;
+      }
+
+      fetch('/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          messageBox.textContent = data.error;
+          messageBox.className = 'message error';
+        } else {
+          messageBox.textContent = '✅ Registration successful! Redirecting to chat...';
+          messageBox.className = 'message success';
+
+          // Redirect after 2 seconds
+          setTimeout(() => {
+            window.location.href = 'chat.html'; // Change if needed
+          }, 2000);
+        }
+      })
+      .catch(err => {
+        messageBox.textContent = 'Error: ' + err.message;
+        messageBox.className = 'message error';
+      });
+    }
+  </script>
+
+</body>
+</html>

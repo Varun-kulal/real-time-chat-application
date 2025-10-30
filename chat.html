@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Chat</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      height: 100vh;
+    }
+    
+    .sidebar {
+      width: 250px;
+      background: #2c3e50;
+      color: white;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .chat-header {
+      background: #3498db;
+      color: white;
+      padding: 15px;
+      text-align: center;
+    }
+    
+    .messages {
+      flex: 1;
+      padding: 20px;
+      overflow-y: auto;
+      background: #ecf0f1;
+    }
+    
+    .message {
+      margin-bottom: 15px;
+      padding: 10px;
+      border-radius: 5px;
+      background: white;
+      box-shadow: 0 1px 1px rgba(0,0,0,0.1);
+    }
+    
+    .message.sent {
+      background: #3498db;
+      color: white;
+      margin-left: auto;
+      max-width: 70%;
+    }
+    
+    .message.received {
+      background: white;
+      margin-right: auto;
+      max-width: 70%;
+    }
+    
+    .message-input {
+      display: flex;
+      padding: 10px;
+      background: #dfe6e9;
+    }
+    
+    .message-input input {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 5px;
+      margin-right: 10px;
+    }
+    
+    .message-input button {
+      padding: 10px 20px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    
+    .user-list {
+      list-style: none;
+      padding: 0;
+    }
+    
+    .user-item {
+      padding: 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #34495e;
+      display: flex;
+      align-items: center;
+    }
+    
+    .user-item:hover {
+      background: #34495e;
+    }
+    
+    .online-indicator {
+      width: 10px;
+      height: 10px;
+      background: #2ecc71;
+      border-radius: 50%;
+      margin-right: 10px;
+    }
+    
+    .offline {
+      background: #e74c3c;
+    }
+    
+    .file-upload {
+      margin-left: 10px;
+    }
+    
+    .file-message {
+      padding: 10px;
+      background: #f1f1f1;
+      border-radius: 5px;
+      margin-top: 5px;
+    }
+    
+    .file-message a {
+      color: #3498db;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <h2>Chat App</h2>
+    <div id="userInfo"></div>
+    <h3>Users</h3>
+    <ul id="userList" class="user-list"></ul>
+    <h3>Rooms</h3>
+    <div>
+      <input type="text" id="roomName" placeholder="Room name">
+      <button id="joinRoom">Join Room</button>
+    </div>
+  </div>
+  
+  <div class="chat-container">
+    <div id="chatHeader" class="chat-header">
+      Select a user or room to start chatting
+    </div>
+    
+    <div id="messages" class="messages"></div>
+    
+    <div class="message-input">
+      <input type="text" id="messageInput" placeholder="Type your message...">
+      <button id="sendMessage">Send</button>
+      <input type="file" id="fileInput" class="file-upload">
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <script>
+    let socket;
+    let currentUser;
+    let currentChat = null; // Can be userId (private) or room name
+    
+    // DOM Elements
+    const userInfoEl = document.getElementById('userInfo');
+    const userListEl = document.getElementById('userList');
+    const messagesEl = document.getElementById('messages');
+    const messageInputEl = document.getElementById('messageInput');
+    const sendMessageBtn = document.getElementById('sendMessage');
+    const chatHeaderEl = document.getElementById('chatHeader');
+    const roomNameEl = document.getElementById('roomName');
+    const joinRoomBtn = document.getElementById('joinRoom');
+    const fileInputEl = document.getElementById('fileInput');
+    
+    // Login Form (simplified for demo)
+    const username = prompt('Enter your username:');
+    const password = prompt('Enter your password:');
+    
+    // Login and initialize
+    fetch('/api/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ username, password })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+      
+      currentUser = data;
+      userInfoEl.innerHTML = `Logged in as: <strong>${currentUser.username}</strong>`;
+      
+      // Initialize Socket.IO connection
+      socket = io({
+        auth: {
+          token: data.token
+        }
+      });
+      
+      // Socket event handlers
+      socket.on('connect', () => {
+        console.log('Connected to WebSocket server');
+        loadUsers();
+      });
+      
+      socket.on('privateMessage', (message) => {
+        if (currentChat === message.sender) {
+          addMessage(message, 'received');
+        }
+      });
+      
+      socket.on('roomMessage', (message) => {
+        if (currentChat === message.room) {
+          addMessage(message, 'received');
+        }
+      });
+      
+      socket.on('fileMessage', (message) => {
+        if (currentChat === message.sender || currentChat === message.room) {
+          addFileMessage(message, 'received');
+        }
+      });
+      
+      // UI Event Listeners
+      sendMessageBtn.addEventListener('click', sendMessage);
+      messageInputEl.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+      });
+      
+      joinRoomBtn.addEventListener('click', joinRoom);
+      fileInputEl.addEventListener('change', uploadFile);
+    })
+    .catch(err => {
+      console.error('Login error:', err);
+      alert('Login failed');
+    });
+    
+    // Load users list
+    function loadUsers() {
+      fetch('/api/users')
+        .then(response => response.json())
+        .then(users => {
+          userListEl.innerHTML = '';
+          users.forEach(user => {
+            if (user._id === currentUser.userId) return;
+            
+            const userEl = document.createElement('li');
+            userEl.className = 'user-item';
+            userEl.innerHTML = `
+              <span class="online-indicator ${user.online ? '' : 'offline'}"></span>
+              ${user.username}
+            `;
+            
+            userEl.addEventListener('click', () => {
+              currentChat = user._id;
+              chatHeaderEl.textContent = `Chat with ${user.username}`;
+              loadMessages(user._id);
+            });
+            
+            userListEl.appendChild(userEl);
+          });
+        });
+    }
+    
+    // Join room
+    function joinRoom() {
+      const room = roomNameEl.value.trim();
+      if (!room) return;
+      
+      socket.emit('joinRoom', room);
+      currentChat = room;
+      chatHeaderEl.textContent = `Room: ${room}`;
+      loadMessages(null, room);
+      roomNameEl.value = '';
+    }
+    
+    // Load messages
+    function loadMessages(userId, room) {
+      let url = '/api/messages?';
+      if (userId) url += `userId=${userId}`;
+      if (room) url += `room=${room}`;
+      
+      fetch(url)
+        .then(response => response.json())
+        .then(messages => {
+          messagesEl.innerHTML = '';
+          messages.forEach(message => {
+            if (message.isFile) {
+              addFileMessage(message, 
+                message.sender._id === currentUser.userId ? 'sent' : 'received');
+            } else {
+              addMessage(message, 
+                message.sender._id === currentUser.userId ? 'sent' : 'received');
+            }
+          });
+          scrollToBottom();
+        });
+    }
+    
+    // Send message
+    function sendMessage() {
+      const content = messageInputEl.value.trim();
+      if (!content || !currentChat) return;
+      
+      if (typeof currentChat === 'string' && currentChat.startsWith('room:')) {
+        // Room message
+        socket.emit('roomMessage', {
+          room: currentChat,
+          content
+        });
+      } else {
+        // Private message
+        socket.emit('privateMessage', {
+          receiverId: currentChat,
+          content
+        });
+      }
+      
+      // Add to UI immediately
+      addMessage({
+        sender: currentUser.userId,
+        content,
+        timestamp: new Date()
+      }, 'sent');
+      
+      messageInputEl.value = '';
+      scrollToBottom();
+    }
+    
+    // Upload file
+    function uploadFile() {
+      if (!fileInputEl.files.length || !currentChat) return;
+      
+      const file = fileInputEl.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (typeof currentChat === 'string' && currentChat.startsWith('room:')) {
+          // Room file message
+          socket.emit('fileMessage', {
+            room: currentChat,
+            fileUrl: data.url,
+            isFile: true
+          });
+        } else {
+          // Private file message
+          socket.emit('fileMessage', {
+            receiverId: currentChat,
+            fileUrl: data.url,
+            isFile: true
+          });
+        }
+        
+        // Add to UI immediately
+        addFileMessage({
+          sender: currentUser.userId,
+          fileUrl: data.url,
+          isFile: true,
+          timestamp: new Date()
+        }, 'sent');
+        
+        fileInputEl.value = '';
+        scrollToBottom();
+      });
+    }
+    
+    // Add message to UI
+    function addMessage(message, type) {
+      const messageEl = document.createElement('div');
+      messageEl.className = `message ${type}`;
+      
+      const time = new Date(message.timestamp).toLocaleTimeString();
+      messageEl.innerHTML = `
+        <div><strong>${type === 'sent' ? 'You' : message.sender.username}</strong></div>
+        <div>${message.content}</div>
+        <div style="font-size: 0.8em; text-align: right;">${time}</div>
+      `;
+      
+      messagesEl.appendChild(messageEl);
+      scrollToBottom();
+    }
+    
+    // Add file message to UI
+    function addFileMessage(message, type) {
+      const messageEl = document.createElement('div');
+      messageEl.className = `message ${type}`;
+      
+      const time = new Date(message.timestamp).toLocaleTimeString();
+      messageEl.innerHTML = `
+        <div><strong>${type === 'sent' ? 'You' : message.sender.username}</strong></div>
+        <div class="file-message">
+          <a href="${message.fileUrl}" target="_blank">Download file</a>
+        </div>
+        <div style="font-size: 0.8em; text-align: right;">${time}</div>
+      `;
+      
+      messagesEl.appendChild(messageEl);
+      scrollToBottom();
+    }
+    
+    // Scroll to bottom of messages
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  </script>
+</body>
+</html>
